@@ -58,15 +58,6 @@ footer a { color: #3498db; }
 footer h3 { color: #555; margin-bottom: 8px; }
 footer ol { text-align: left; display: inline-block; }
 
-.settings {
-    max-width: 1100px; margin: 10px auto; padding: 8px 20px; text-align: center;
-    font-size: 14px; color: #555;
-}
-.settings input {
-    width: 80px; padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px;
-    font-size: 14px; text-align: center;
-}
-
 .loading { text-align: center; padding: 60px; color: #888; }
 </style>
 </head>
@@ -76,11 +67,6 @@ footer ol { text-align: left; display: inline-block; }
     <h1>足球预测存证系统</h1>
     <p>所有预测均在赛前加密上传至 GitHub，服务器时间戳不可伪造</p>
 </header>
-
-<div class="settings">
-    初始资金: <input type="number" id="inp-capital" value="10000" min="1" step="1000">
-    &nbsp;&nbsp;投注比例: <input type="number" id="inp-pct" value="3" min="0.5" max="50" step="0.5">%
-</div>
 
 <div class="stats">
     <div class="card"><div class="label">总场次</div><div class="value" id="s-total">-</div></div>
@@ -131,73 +117,24 @@ const OWNER = 'NegentropyLab';
 const REPO = 'csv2026';
 const CSV_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/main/display.csv`;
 
-let rawRows = [];    // CSV 原始数据
-let chartObj = null; // Chart.js 实例
-
 async function main() {
-    // 读取 localStorage 的设置
-    const savedCapital = localStorage.getItem('capital');
-    const savedPct = localStorage.getItem('pct');
-    if (savedCapital) document.getElementById('inp-capital').value = savedCapital;
-    if (savedPct) document.getElementById('inp-pct').value = savedPct;
-
-    // 加载 CSV
+    let rows;
     try {
         const resp = await fetch(CSV_URL);
         if (!resp.ok) throw new Error(resp.status);
         const csvText = await resp.text();
         const parsed = Papa.parse(csvText.trim(), { header: true, skipEmptyLines: true });
-        rawRows = parsed.data.filter(r => r['赛果'] && r['赛果'].trim() !== '');
+        rows = parsed.data.filter(r => r['赛果'] && r['赛果'].trim() !== '');
     } catch (e) {
         document.getElementById('loading').textContent = '暂无数据';
         return;
     }
 
-    if (rawRows.length === 0) {
+    if (rows.length === 0) {
         document.getElementById('loading').textContent = '暂无已结算记录';
         return;
     }
 
-    // 输入框变化时自动刷新
-    document.getElementById('inp-capital').addEventListener('change', refresh);
-    document.getElementById('inp-pct').addEventListener('change', refresh);
-
-    refresh();
-}
-
-// 根据投注比例重新计算每场的投注额、盈亏、余额
-function calcBets(rows, capital, pct) {
-    const result = [];
-    let balance = capital;
-    rows.forEach(r => {
-        const signal = r['信号'];
-        const oddsStr = signal === '主' ? r['皇冠主赔'] : r['皇冠客赔'];
-        const odds = parseFloat(oddsStr) || 0;
-        const stake = Math.round(balance * pct / 100 * 100) / 100;
-
-        let profit = 0;
-        const res = r['赛果'];
-        if (res === '赢') profit = Math.round(stake * odds * 100) / 100;
-        else if (res === '赢半') profit = Math.round(stake * odds * 0.5 * 100) / 100;
-        else if (res === '走水') profit = 0;
-        else if (res === '输半') profit = Math.round(-stake * 0.5 * 100) / 100;
-        else if (res === '输') profit = -stake;
-
-        balance = Math.round((balance + profit) * 100) / 100;
-        result.push({ ...r, _stake: stake, _pnl: profit, _balance: balance });
-    });
-    return result;
-}
-
-function refresh() {
-    const capital = parseFloat(document.getElementById('inp-capital').value) || 10000;
-    const pct = parseFloat(document.getElementById('inp-pct').value) || 3;
-
-    // 保存设置
-    localStorage.setItem('capital', capital);
-    localStorage.setItem('pct', pct);
-
-    const rows = calcBets(rawRows, capital, pct);
     computeStats(rows);
     renderChart(rows);
     renderTable(rows);
@@ -214,23 +151,22 @@ function computeStats(rows) {
     let oddsSum = 0, oddsCount = 0;
     let curWin = 0, curLose = 0, maxWin = 0, maxLose = 0;
 
-    const capital = parseFloat(document.getElementById('inp-capital').value) || 10000;
-    let balanceTrack = capital;
-
     rows.forEach(r => {
         const result = r['赛果'];
         const isWin = (result === '赢' || result === '赢半');
         const isLose = (result === '输' || result === '输半');
         if (isWin) wins++;
 
-        totalStake += r._stake;
-        totalProfit += r._pnl;
-        balanceTrack = r._balance;
-        if (r._pnl > 0) totalWin += r._pnl;
-        if (r._pnl < 0) totalLoss += Math.abs(r._pnl);
+        const pnl = parseFloat(r['盈亏']) || 0;
+        const stake = parseFloat(r['下注资金']) || 0;
+        const balance = parseFloat(r['余额']) || 0;
+        totalStake += stake;
+        totalProfit += pnl;
+        if (pnl > 0) totalWin += pnl;
+        if (pnl < 0) totalLoss += Math.abs(pnl);
 
-        if (balanceTrack > peak) peak = balanceTrack;
-        const dd = peak - balanceTrack;
+        if (balance > peak) peak = balance;
+        const dd = peak - balance;
         if (dd > maxDrawdown) maxDrawdown = dd;
 
         const signal = r['信号'];
@@ -267,19 +203,17 @@ function setVal(id, text, positive) {
 }
 
 function renderChart(rows) {
-    const capital = parseFloat(document.getElementById('inp-capital').value) || 10000;
-    const labels = ['起点'];
-    const data = [capital];
+    const labels = [];
+    const data = [];
 
     rows.forEach(r => {
         const mt = (r['比赛时间'] || '').trim();
         const m = mt.match(/(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})/);
         labels.push(m ? `${m[1]}-${m[2]} ${m[3]}:${m[4]}` : mt.slice(0, 10));
-        data.push(r._balance);
+        data.push(parseFloat(r['余额']) || 0);
     });
 
-    if (chartObj) chartObj.destroy();
-    chartObj = new Chart(document.getElementById('profitChart'), {
+    new Chart(document.getElementById('profitChart'), {
         type: 'line',
         data: {
             labels,
@@ -312,15 +246,18 @@ function renderChart(rows) {
 
 function renderTable(rows) {
     const tbody = document.getElementById('tbody');
-    tbody.innerHTML = '';
     const reversed = [...rows].reverse();
 
     reversed.forEach((r, idx) => {
         const seq = rows.length - idx;
+        const pnl = parseFloat(r['盈亏']) || 0;
+        const balance = parseFloat(r['余额']) || 0;
+        const stake = parseFloat(r['下注资金']) || 0;
+        const pctText = r['投注比例'] || '';
         const result = r['赛果'];
         const resultClass = (result === '赢' || result === '赢半') ? 'win' : (result === '输' || result === '输半') ? 'lose' : 'draw';
-        const pnlClass = r._pnl > 0 ? 'win' : r._pnl < 0 ? 'lose' : 'draw';
-        const balanceClass = r._balance >= 0 ? 'win' : 'lose';
+        const pnlClass = pnl > 0 ? 'win' : pnl < 0 ? 'lose' : 'draw';
+        const balanceClass = balance >= 0 ? 'win' : 'lose';
         const score = (r['主队比分'] !== '' && r['客队比分'] !== '') ? `${r['主队比分']}-${r['客队比分']}` : '-';
 
         const detailId = `detail-${idx}`;
@@ -341,9 +278,9 @@ function renderTable(rows) {
             <td>${r['盘口'] || ''}</td>
             <td><b>${r['信号'] || ''}</b></td>
             <td class="${resultClass}"><b>${result}</b></td>
-            <td>${r._stake.toFixed(0)}</td>
-            <td class="${pnlClass}">${r._pnl > 0 ? '+' : ''}${r._pnl.toFixed(0)}</td>
-            <td class="${balanceClass}">${r._balance.toFixed(0)}</td>
+            <td>${stake.toFixed(0)}(${pctText})</td>
+            <td class="${pnlClass}">${pnl > 0 ? '+' : ''}${pnl.toFixed(0)}</td>
+            <td class="${balanceClass}">${balance.toFixed(0)}</td>
             <td><button class="btn-verify" onclick="toggleDetail('${detailId}')">验证</button></td>`;
         tbody.appendChild(tr);
 
