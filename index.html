@@ -59,6 +59,22 @@ footer h3 { color: #555; margin-bottom: 8px; }
 footer ol { text-align: left; display: inline-block; }
 
 .loading { text-align: center; padding: 60px; color: #888; }
+
+/* 手机适配 */
+@media (max-width: 600px) {
+    header { padding: 20px 12px 6px; }
+    header h1 { font-size: 18px; }
+    header p { font-size: 12px; }
+    .stats { gap: 8px; padding: 10px 8px; }
+    .card { min-width: 90px; padding: 10px 8px; }
+    .card .label { font-size: 11px; }
+    .card .value { font-size: 16px; }
+    .chart-box { padding: 0 8px; }
+    .table-wrap { padding: 0 8px; }
+    table { font-size: 12px; }
+    th, td { padding: 6px 4px; }
+    footer { padding: 16px 12px; font-size: 12px; }
+}
 </style>
 </head>
 <body>
@@ -109,7 +125,8 @@ footer ol { text-align: left; display: inline-block; }
         <li>计算解压后 CSV 文件的 SHA256，与 GitHub commit message 中的哈希比对</li>
     </ol>
     <br>
-    <p>GitHub 仓库: <a href="https://github.com/NegentropyLab/csv2026" target="_blank">NegentropyLab/csv2026</a></p>
+    <p>GitHub: <a href="https://github.com/NegentropyLab/csv2026" target="_blank">NegentropyLab/csv2026</a></p>
+    <p>Telegram: <a href="https://t.me/你的用户名" target="_blank">@你的用户名</a></p>
 </footer>
 
 <script>
