@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>足球预测存证系统</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f5f7fa; color: #333; }
+
+header { text-align: center; padding: 30px 20px 10px; }
+header h1 { font-size: 24px; margin-bottom: 6px; }
+header p { color: #888; font-size: 14px; }
+
+.stats { display: flex; justify-content: center; gap: 16px; padding: 20px; flex-wrap: wrap; }
+.card {
+    background: #fff; border-radius: 8px; padding: 16px 24px; text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1); min-width: 120px;
+}
+.card .label { font-size: 13px; color: #888; margin-bottom: 4px; }
+.card .value { font-size: 22px; font-weight: 700; }
+.card .value.positive { color: #2ecc71; }
+.card .value.negative { color: #e74c3c; }
+
+.chart-box {
+    max-width: 900px; margin: 10px auto; padding: 0 20px;
+}
+.chart-box canvas { background: #fff; border-radius: 8px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+.table-wrap { max-width: 1100px; margin: 20px auto; padding: 0 20px; overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-size: 13px; }
+th { background: #34495e; color: #fff; padding: 10px 8px; text-align: center; white-space: nowrap; }
+td { padding: 8px; text-align: center; border-bottom: 1px solid #eee; white-space: nowrap; }
+tr:hover { background: #f0f6ff; }
+.win { color: #2ecc71; font-weight: 700; }
+.lose { color: #e74c3c; font-weight: 700; }
+.draw { color: #888; }
+.btn-verify {
+    background: #3498db; color: #fff; border: none; border-radius: 4px;
+    padding: 3px 10px; cursor: pointer; font-size: 12px;
+}
+.btn-verify:hover { background: #2980b9; }
+
+.verify-detail {
+    display: none; text-align: left; font-size: 12px; color: #555;
+    background: #f9f9f9; padding: 10px; line-height: 1.8;
+}
+.verify-detail a { color: #3498db; word-break: break-all; }
+.verify-detail code { background: #eee; padding: 2px 6px; border-radius: 3px; font-size: 11px; word-break: break-all; }
+
+footer {
+    max-width: 900px; margin: 30px auto; padding: 20px; text-align: center;
+    color: #888; font-size: 13px; line-height: 1.8;
+}
+footer a { color: #3498db; }
+footer h3 { color: #555; margin-bottom: 8px; }
+footer ol { text-align: left; display: inline-block; }
+
+.loading { text-align: center; padding: 60px; color: #888; }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>足球预测存证系统</h1>
+    <p>所有预测均在赛前加密上传至 GitHub，服务器时间戳不可伪造</p>
+</header>
+
+<div class="stats">
+    <div class="card"><div class="label">总场次</div><div class="value" id="s-total">-</div></div>
+    <div class="card"><div class="label">胜率</div><div class="value" id="s-winrate">-</div></div>
+    <div class="card"><div class="label">ROI</div><div class="value" id="s-roi">-</div></div>
+    <div class="card"><div class="label">累计收益</div><div class="value" id="s-profit">-</div></div>
+    <div class="card"><div class="label">盈利因子</div><div class="value" id="s-pf">-</div></div>
+</div>
+<div class="stats">
+    <div class="card"><div class="label">平均赔率</div><div class="value" id="s-avgodds">-</div></div>
+    <div class="card"><div class="label">最大回撤</div><div class="value" id="s-drawdown">-</div></div>
+    <div class="card"><div class="label">最长连赢</div><div class="value" id="s-winstreak">-</div></div>
+    <div class="card"><div class="label">最长连败</div><div class="value" id="s-losestreak">-</div></div>
+</div>
+
+<div class="chart-box">
+    <canvas id="profitChart" height="80"></canvas>
+</div>
+
+<div class="table-wrap">
+    <div class="loading" id="loading">加载中...</div>
+    <table id="recordTable" style="display:none">
+        <thead>
+            <tr>
+                <th>#</th><th>比赛时间</th><th>联赛</th>
+                <th>主队</th><th>比分</th><th>客队</th>
+                <th>盘口</th><th>信号</th><th>赛果</th>
+                <th>盈亏</th><th>余额</th><th>验证</th>
+            </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+    </table>
+</div>
+
+<footer>
+    <h3>如何验证预测的真实性</h3>
+    <ol>
+        <li>点击"验证"查看 GitHub 上的加密文件，确认提交时间早于比赛</li>
+        <li>下载 ZIP 文件，用表中的密码解压（WinRAR / 7-Zip）</li>
+        <li>计算解压后 CSV 文件的 SHA256，与 GitHub commit message 中的哈希比对</li>
+    </ol>
+    <br>
+    <p>GitHub 仓库: <a href="https://github.com/NegentropyLab/csv2026" target="_blank">NegentropyLab/csv2026</a></p>
+</footer>
+
+<script>
+const OWNER = 'NegentropyLab';
+const REPO = 'csv2026';
+const CSV_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/main/display.csv`;
+
+async function main() {
+    let csvText;
+    try {
+        const resp = await fetch(CSV_URL);
+        if (!resp.ok) throw new Error(resp.status);
+        csvText = await resp.text();
+    } catch (e) {
+        document.getElementById('loading').textContent = '暂无数据';
+        return;
+    }
+
+    const parsed = Papa.parse(csvText.trim(), { header: true, skipEmptyLines: true });
+    const rows = parsed.data.filter(r => r['赛果'] && r['赛果'].trim() !== '');
+
+    if (rows.length === 0) {
+        document.getElementById('loading').textContent = '暂无已结算记录';
+        return;
+    }
+
+    computeStats(rows);
+    renderChart(rows);
+    renderTable(rows);
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('recordTable').style.display = '';
+}
+
+function computeStats(rows) {
+    const total = rows.length;
+    let wins = 0, totalStake = 0, totalProfit = 0;
+    let totalWin = 0, totalLoss = 0;
+    let peak = 0, maxDrawdown = 0, balance = 0;
+    let oddsSum = 0, oddsCount = 0;
+
+    // 连赢连败
+    let curWin = 0, curLose = 0, maxWin = 0, maxLose = 0;
+
+    rows.forEach(r => {
+        const result = r['赛果'];
+        const isWin = (result === '赢' || result === '赢半');
+        const isLose = (result === '输' || result === '输半');
+        if (isWin) wins++;
+
+        const pnl = parseFloat(r['盈亏']) || 0;
+        const stake = parseFloat(r['下注资金']) || 0;
+        totalStake += stake;
+        totalProfit += pnl;
+        balance += pnl;
+        if (pnl > 0) totalWin += pnl;
+        if (pnl < 0) totalLoss += Math.abs(pnl);
+
+        if (balance > peak) peak = balance;
+        const dd = peak - balance;
+        if (dd > maxDrawdown) maxDrawdown = dd;
+
+        // 赔率
+        const signal = r['信号'];
+        const odds = parseFloat(signal === '主' ? r['皇冠主赔'] : r['皇冠客赔']);
+        if (odds > 0) { oddsSum += odds; oddsCount++; }
+
+        // 连赢连败（走水重置两边）
+        if (isWin) {
+            curWin++; curLose = 0;
+            if (curWin > maxWin) maxWin = curWin;
+        } else if (isLose) {
+            curLose++; curWin = 0;
+            if (curLose > maxLose) maxLose = curLose;
+        } else {
+            curWin = 0; curLose = 0;
+        }
+    });
+
+    const winRate = ((wins / total) * 100).toFixed(1);
+    const roi = totalStake > 0 ? ((totalProfit / totalStake) * 100).toFixed(1) : '0';
+    const pf = totalLoss > 0 ? (totalWin / totalLoss).toFixed(2) : '-';
+    const avgOdds = oddsCount > 0 ? (oddsSum / oddsCount).toFixed(2) : '-';
+
+    setVal('s-total', total);
+    setVal('s-winrate', winRate + '%', wins / total >= 0.5);
+    setVal('s-roi', (roi >= 0 ? '+' : '') + roi + '%', roi >= 0);
+    setVal('s-profit', (totalProfit >= 0 ? '+' : '') + totalProfit.toFixed(0), totalProfit >= 0);
+    setVal('s-pf', pf, pf !== '-' && parseFloat(pf) >= 1);
+    setVal('s-avgodds', avgOdds);
+    setVal('s-drawdown', maxDrawdown > 0 ? '-' + maxDrawdown.toFixed(0) : '0', false);
+    setVal('s-winstreak', maxWin, true);
+    setVal('s-losestreak', maxLose, false);
+}
+
+function setVal(id, text, positive) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    if (positive === true) el.classList.add('positive');
+    else if (positive === false && text !== '0') el.classList.add('negative');
+}
+
+function renderChart(rows) {
+    const labels = [];
+    const data = [];
+    let balance = 0;
+
+    rows.forEach((r, i) => {
+        balance += parseFloat(r['盈亏']) || 0;
+        labels.push(i + 1);
+        data.push(balance);
+    });
+
+    new Chart(document.getElementById('profitChart'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: '累计收益',
+                data,
+                borderColor: '#3498db',
+                backgroundColor: 'rgba(52,152,219,0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => `第 ${items[0].label} 场`,
+                        label: (item) => `累计收益: ${item.raw.toFixed(1)}`
+                    }
+                }
+            },
+            scales: {
+                x: { title: { display: true, text: '场次' } },
+                y: { title: { display: true, text: '累计收益' } }
+            }
+        }
+    });
+}
+
+function renderTable(rows) {
+    const tbody = document.getElementById('tbody');
+    // 倒序显示（最新的在前）
+    const reversed = [...rows].reverse();
+
+    reversed.forEach((r, idx) => {
+        const seq = rows.length - idx;
+        const pnl = parseFloat(r['盈亏']) || 0;
+        const result = r['赛果'];
+        const resultClass = (result === '赢' || result === '赢半') ? 'win' : (result === '输' || result === '输半') ? 'lose' : 'draw';
+        const pnlClass = pnl > 0 ? 'win' : pnl < 0 ? 'lose' : 'draw';
+        const balanceClass = parseFloat(r['余额']) >= 0 ? 'win' : 'lose';
+        const score = (r['主队比分'] !== '' && r['客队比分'] !== '') ? `${r['主队比分']}-${r['客队比分']}` : '-';
+
+        const detailId = `detail-${idx}`;
+        const certUrl = r['存证文件URL'] || '';
+        const sha = r['SHA256'] || '';
+        const pwd = r['解压密码'] || '';
+        const oddsUrl = r['赔率页面URL'] || '';
+        const resultUrl = r['赛果页面URL'] || '';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${seq}</td>
+            <td>${r['比赛时间'] || ''}</td>
+            <td>${r['联赛'] || ''}</td>
+            <td>${r['主队'] || ''}</td>
+            <td><b>${score}</b></td>
+            <td>${r['客队'] || ''}</td>
+            <td>${r['盘口'] || ''}</td>
+            <td><b>${r['信号'] || ''}</b></td>
+            <td class="${resultClass}"><b>${result}</b></td>
+            <td class="${pnlClass}">${pnl > 0 ? '+' : ''}${pnl}</td>
+            <td class="${balanceClass}">${r['余额'] || ''}</td>
+            <td><button class="btn-verify" onclick="toggleDetail('${detailId}')">验证</button></td>`;
+        tbody.appendChild(tr);
+
+        const detailTr = document.createElement('tr');
+        detailTr.innerHTML = `<td colspan="12"><div class="verify-detail" id="${detailId}">
+            <b>存证文件:</b> <a href="${certUrl}" target="_blank">${certUrl}</a><br>
+            <b>SHA256:</b> <code>${sha}</code><br>
+            <b>解压密码:</b> <code>${pwd}</code><br>
+            <b>赔率页面:</b> <a href="${oddsUrl}" target="_blank">查看</a> &nbsp;
+            <b>赛果页面:</b> <a href="${resultUrl}" target="_blank">查看</a>
+        </div></td>`;
+        tbody.appendChild(detailTr);
+    });
+}
+
+function toggleDetail(id) {
+    const el = document.getElementById(id);
+    el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+main();
+</script>
+</body>
+</html>
